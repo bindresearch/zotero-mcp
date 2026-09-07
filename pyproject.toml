@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-zotero"
+version = "0.1.0"
+description = "A stateless MCP server for Zotero group-library search and full text"
+authors = [{name = "Bind Research"}]
+maintainers = [{name = "Thomas Löhr", email = "thomas@bindresearch.org"}]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28,<1",
+    "mcp[cli]>=1.26,<2",
+    "pydantic-settings>=2.7,<3",
+]
+
+[project.scripts]
+mcp-zotero = "mcp_zotero.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_zotero"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "pytest-cov>=6,<8",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config"
+testpaths = ["tests"]
