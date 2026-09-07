@@ -1,10 +1,11 @@
-import asyncio
 from typing import Any
 
 import pytest
 
 from mcp_zotero.service import ZoteroService
 from mcp_zotero.zotero_client import ZoteroNotFoundError, ZoteroPage
+
+pytestmark = pytest.mark.anyio
 
 
 def zotero_item(key: str, item_type: str, **data: Any) -> dict[str, Any]:
@@ -23,43 +24,62 @@ def zotero_item(key: str, item_type: str, **data: Any) -> dict[str, Any]:
     }
 
 
-PAPER = zotero_item(
-    "PAPER001",
-    "journalArticle",
-    title="A test paper",
-    creators=[
-        {"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"},
-        {"creatorType": "editor", "name": "Research Group"},
-    ],
-    date="2024-05-10",
-    abstractNote="An abstract",
-    publicationTitle="Test Journal",
-    DOI="10.1000/test",
-    tags=[{"tag": "example"}],
-)
-OTHER_PAPER = zotero_item("PAPER002", "conferencePaper", title="Another paper")
-PDF = zotero_item(
-    "ATTACH01",
-    "attachment",
-    title="Full Text PDF",
-    parentItem="PAPER001",
-    contentType="application/pdf",
-    filename="paper.pdf",
-    linkMode="imported_file",
-)
-NOTE = zotero_item(
-    "NOTE0001",
-    "note",
-    title="",
-    parentItem="PAPER001",
-)
+@pytest.fixture
+def paper() -> dict[str, Any]:
+    return zotero_item(
+        "PAPER001",
+        "journalArticle",
+        title="A test paper",
+        creators=[
+            {"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"},
+            {"creatorType": "editor", "name": "Research Group"},
+        ],
+        date="2024-05-10",
+        abstractNote="An abstract",
+        publicationTitle="Test Journal",
+        DOI="10.1000/test",
+        tags=[{"tag": "example"}],
+    )
+
+
+@pytest.fixture
+def other_paper() -> dict[str, Any]:
+    return zotero_item("PAPER002", "conferencePaper", title="Another paper")
+
+
+@pytest.fixture
+def pdf() -> dict[str, Any]:
+    return zotero_item(
+        "ATTACH01",
+        "attachment",
+        title="Full Text PDF",
+        parentItem="PAPER001",
+        contentType="application/pdf",
+        filename="paper.pdf",
+        linkMode="imported_file",
+    )
+
+
+@pytest.fixture
+def note() -> dict[str, Any]:
+    return zotero_item(
+        "NOTE0001",
+        "note",
+        title="",
+        parentItem="PAPER001",
+    )
 
 
 class FakeClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        paper: dict[str, Any],
+        other_paper: dict[str, Any],
+        pdf: dict[str, Any],
+    ) -> None:
         self.search_pages: list[ZoteroPage] = []
-        self.items = {"PAPER001": PAPER, "PAPER002": OTHER_PAPER}
-        self.attachments = {"PAPER001": [PDF], "PAPER002": []}
+        self.items = {"PAPER001": paper, "PAPER002": other_paper}
+        self.attachments = {"PAPER001": [pdf], "PAPER002": []}
         self.fulltext: dict[str, dict[str, Any] | Exception] = {
             "ATTACH01": {
                 "content": "Alpha before. Important phrase in the paper. Omega after.",
@@ -88,16 +108,32 @@ class FakeClient:
         return value
 
 
-def run(coroutine: Any) -> Any:
-    return asyncio.run(coroutine)
+@pytest.fixture
+def fake_client(
+    paper: dict[str, Any],
+    other_paper: dict[str, Any],
+    pdf: dict[str, Any],
+) -> FakeClient:
+    return FakeClient(paper, other_paper, pdf)
 
 
-def test_search_resolves_children_and_deduplicates_parent() -> None:
-    client = FakeClient()
-    client.search_pages = [ZoteroPage(items=[PDF, NOTE, OTHER_PAPER], total_results=3)]
-    service = ZoteroService(client)  # type: ignore[arg-type]
+@pytest.fixture
+def service(fake_client: FakeClient) -> ZoteroService:
+    return ZoteroService(fake_client, max_text_characters=500)  # type: ignore
 
-    result = run(service.search_papers("test"))
+
+async def test_search_resolves_children_and_deduplicates_parent(
+    service: ZoteroService,
+    fake_client: FakeClient,
+    pdf: dict[str, Any],
+    note: dict[str, Any],
+    other_paper: dict[str, Any],
+) -> None:
+    fake_client.search_pages = [
+        ZoteroPage(items=[pdf, note, other_paper], total_results=3)
+    ]
+
+    result = await service.search_papers("test")
 
     assert result.returned == 2
     assert [hit.paper.key for hit in result.papers] == ["PAPER001", "PAPER002"]
@@ -108,10 +144,10 @@ def test_search_resolves_children_and_deduplicates_parent() -> None:
     assert result.more_results_available is False
 
 
-def test_get_paper_includes_metadata_creators_and_attachments() -> None:
-    service = ZoteroService(FakeClient())  # type: ignore[arg-type]
-
-    result = run(service.get_paper("paper001"))
+async def test_get_paper_includes_metadata_creators_and_attachments(
+    service: ZoteroService,
+) -> None:
+    result = await service.get_paper("paper001")
 
     assert result.summary.title == "A test paper"
     assert result.metadata["DOI"] == "10.1000/test"
@@ -122,10 +158,10 @@ def test_get_paper_includes_metadata_creators_and_attachments() -> None:
     assert [attachment.key for attachment in result.attachments] == ["ATTACH01"]
 
 
-def test_get_paper_text_returns_contiguous_bounded_text() -> None:
-    service = ZoteroService(FakeClient(), max_text_characters=500)  # type: ignore[arg-type]
-
-    result = run(service.get_paper_text("PAPER001", offset=6, max_characters=100))
+async def test_get_paper_text_returns_contiguous_bounded_text(
+    service: ZoteroService,
+) -> None:
+    result = await service.get_paper_text("PAPER001", offset=6, max_characters=100)
 
     assert result.status == "ok"
     assert result.attachment_key == "ATTACH01"
@@ -135,15 +171,13 @@ def test_get_paper_text_returns_contiguous_bounded_text() -> None:
     assert result.indexed_pages == 10
 
 
-def test_get_paper_text_returns_literal_excerpts() -> None:
-    service = ZoteroService(FakeClient(), max_text_characters=500)  # type: ignore[arg-type]
-
-    result = run(
-        service.get_paper_text(
-            "PAPER001",
-            max_characters=100,
-            query="important phrase",
-        )
+async def test_get_paper_text_returns_literal_excerpts(
+    service: ZoteroService,
+) -> None:
+    result = await service.get_paper_text(
+        "PAPER001",
+        max_characters=100,
+        query="important phrase",
     )
 
     assert result.status == "ok"
@@ -151,8 +185,11 @@ def test_get_paper_text_returns_literal_excerpts() -> None:
     assert "Important phrase" in result.segments[0].text
 
 
-def test_get_paper_text_requires_selection_for_multiple_pdfs() -> None:
-    client = FakeClient()
+async def test_get_paper_text_requires_selection_for_multiple_pdfs(
+    service: ZoteroService,
+    fake_client: FakeClient,
+    pdf: dict[str, Any],
+) -> None:
     second_pdf = zotero_item(
         "ATTACH02",
         "attachment",
@@ -160,10 +197,9 @@ def test_get_paper_text_requires_selection_for_multiple_pdfs() -> None:
         contentType="application/pdf",
         filename="supplement.pdf",
     )
-    client.attachments["PAPER001"] = [PDF, second_pdf]
-    service = ZoteroService(client)  # type: ignore[arg-type]
+    fake_client.attachments["PAPER001"] = [pdf, second_pdf]
 
-    result = run(service.get_paper_text("PAPER001"))
+    result = await service.get_paper_text("PAPER001")
 
     assert result.status == "selection_required"
     assert [item.key for item in result.available_attachments] == [
@@ -172,19 +208,18 @@ def test_get_paper_text_requires_selection_for_multiple_pdfs() -> None:
     ]
 
 
-def test_get_paper_text_handles_missing_synchronized_text() -> None:
-    client = FakeClient()
-    client.fulltext["ATTACH01"] = ZoteroNotFoundError("missing")
-    service = ZoteroService(client)  # type: ignore[arg-type]
+async def test_get_paper_text_handles_missing_synchronized_text(
+    service: ZoteroService,
+    fake_client: FakeClient,
+) -> None:
+    fake_client.fulltext["ATTACH01"] = ZoteroNotFoundError("missing")
 
-    result = run(service.get_paper_text("PAPER001"))
+    result = await service.get_paper_text("PAPER001")
 
     assert result.status == "not_available"
     assert "no synchronized full text" in (result.message or "")
 
 
-def test_rejects_invalid_item_key() -> None:
-    service = ZoteroService(FakeClient())  # type: ignore[arg-type]
-
+async def test_rejects_invalid_item_key(service: ZoteroService) -> None:
     with pytest.raises(ValueError, match="8-character"):
-        run(service.get_paper("not-a-key"))
+        await service.get_paper("not-a-key")

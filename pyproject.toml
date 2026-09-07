@@ -24,6 +24,7 @@ packages = ["src/mcp_zotero"]
 
 [dependency-groups]
 dev = [
+    "anyio>=4,<5",
     "pytest>=8,<10",
     "pytest-cov>=6,<8",
 ]
