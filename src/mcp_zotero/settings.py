@@ -15,6 +15,7 @@ class TransportSettings(BaseSettings):
         extra="ignore",
     )
 
+    mcp_transport: Literal["streamable-http", "stdio"] = "streamable-http"
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8000, ge=1, le=65535)
     mcp_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

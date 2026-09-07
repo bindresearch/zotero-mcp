@@ -3,7 +3,7 @@
 
 # MCP Zotero
 
-This project provides read-only MCP access to one Zotero group library. It uses the Zotero Web API v3 and Streamable HTTP.
+This project provides read-only MCP access to one Zotero group library. It uses the Zotero Web API v3 and can run over Streamable HTTP or stdio.
 
 The server is stateless. It does not keep a local index. It does not download or parse PDF files. Zotero performs the search and supplies synchronized attachment text.
 
@@ -51,6 +51,7 @@ ZOTERO_API_KEY=replace-with-a-read-only-api-key
 The main optional settings are:
 
 ```env
+MCP_TRANSPORT=streamable-http  # or stdio
 MCP_HOST=127.0.0.1
 MCP_PORT=8000
 MCP_LOG_LEVEL=INFO
@@ -60,8 +61,6 @@ ZOTERO_MAX_RETRIES=3
 ZOTERO_MAX_SEARCH_PAGES=20
 ```
 
-Use `MCP_HOST=0.0.0.0` when LiteLLM connects from another container or host on the private network.
-
 ## Install and run
 
 Install the project with `uv`:
@@ -70,11 +69,19 @@ Install the project with `uv`:
 uv sync
 ```
 
-Start the Streamable HTTP server:
+Start the server. The default is Streamable HTTP:
 
 ```sh
 uv run mcp-zotero
 ```
+
+Set `MCP_TRANSPORT=stdio` in `.env` to run over standard input/output instead:
+
+```sh
+MCP_TRANSPORT=stdio uv run mcp-zotero
+```
+
+### Streamable HTTP
 
 The MCP endpoint is:
 
@@ -82,7 +89,11 @@ The MCP endpoint is:
 http://127.0.0.1:8000/mcp
 ```
 
-Point the LiteLLM MCP server configuration at this URL. No MCP authorization header is required.
+Point the LiteLLM MCP server configuration at this URL. No MCP authorization header is required. Use `MCP_HOST=0.0.0.0` when LiteLLM connects from another container or host on the private network.
+
+### stdio
+
+Run in stdio mode for a local MCP client that launches the process directly.
 
 For interactive development, use the MCP Inspector:
 

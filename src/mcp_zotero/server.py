@@ -181,9 +181,9 @@ mcp = create_server()
 
 
 def main() -> None:
-    """Run the server with Streamable HTTP transport."""
+    """Run the server with the transport configured in MCP_TRANSPORT."""
 
-    mcp.run(transport="streamable-http")
+    mcp.run(transport=TransportSettings().mcp_transport)
 
 
 if __name__ == "__main__":
